@@ -1,8 +1,27 @@
 import { Counter, register, collectDefaultMetrics, Histogram, Summary, Registry } from 'prom-client';
 import { prisma } from './prisma';
 import { scopedLogger } from '~/utils/logger';
-import fs from 'fs';
-import path from 'path';
+
+// Check if we're in a Node.js environment (not Cloudflare Workers)
+const isNodeEnv = typeof process !== 'undefined' && process.versions?.node;
+let fs: typeof import('fs') | null = null;
+let path: typeof import('path') | null = null;
+let fsInitialized = false;
+
+async function initFs() {
+  if (fsInitialized || !isNodeEnv) return;
+  try {
+    // Dynamic import for fs and path (only available in Node.js)
+    const fsModule = await import('fs');
+    const pathModule = await import('path');
+    fs = fsModule.default || fsModule;
+    path = pathModule.default || pathModule;
+    fsInitialized = true;
+  } catch {
+    // fs/path not available (e.g., in Cloudflare Workers)
+    fsInitialized = true;
+  }
+}
 
 const log = scopedLogger('metrics');
 const METRICS_FILE = '.metrics.json';
@@ -51,6 +70,19 @@ export function getMetrics(interval: 'default' | 'daily' | 'weekly' | 'monthly' 
 
 export function getRegistry(interval: 'default' | 'daily' | 'weekly' | 'monthly' = 'default') {
   return registries[interval];
+}
+
+function getMetricsFileName(interval: string = 'default'): string {
+  switch (interval) {
+    case 'daily':
+      return METRICS_DAILY_FILE;
+    case 'weekly':
+      return METRICS_WEEKLY_FILE;
+    case 'monthly':
+      return METRICS_MONTHLY_FILE;
+    default:
+      return METRICS_FILE;
+  }
 }
 
 async function createMetrics(registry: Registry, interval: string): Promise<Metrics> {
@@ -112,6 +144,8 @@ async function createMetrics(registry: Registry, interval: string): Promise<Metr
 }
 
 async function saveMetricsToFile(interval: string = 'default') {
+  await initFs();
+  if (!fs || !isNodeEnv) return; // Skip file operations in Cloudflare Workers
   try {
     const registry = registries[interval];
     if (!registry) return;
@@ -136,6 +170,8 @@ async function saveMetricsToFile(interval: string = 'default') {
 }
 
 async function loadMetricsFromFile(interval: string = 'default'): Promise<any[]> {
+  await initFs();
+  if (!fs || !isNodeEnv) return []; // Skip file operations in Cloudflare Workers
   try {
     const fileName = getMetricsFileName(interval);
 
@@ -162,30 +198,34 @@ async function loadMetricsFromFile(interval: string = 'default'): Promise<any[]>
   }
 }
 
-// Periodically save all metrics
-const SAVE_INTERVAL = 60000; // Save every minute
-setInterval(() => {
-  Object.keys(registries).forEach(interval => {
-    saveMetricsToFile(interval);
+// Periodically save all metrics (only in Node.js environment)
+if (isNodeEnv && typeof setInterval !== 'undefined') {
+  const SAVE_INTERVAL = 60000; // Save every minute
+  setInterval(() => {
+    Object.keys(registries).forEach(interval => {
+      saveMetricsToFile(interval);
+    });
+  }, SAVE_INTERVAL);
+}
+
+// Save metrics on process exit (only in Node.js environment)
+if (isNodeEnv && typeof process !== 'undefined' && process.on) {
+  process.on('SIGTERM', async () => {
+    log.info('Saving all metrics before exit...', { evt: 'exit_save' });
+    for (const interval of Object.keys(registries)) {
+      await saveMetricsToFile(interval);
+    }
+    process.exit(0);
   });
-}, SAVE_INTERVAL);
 
-// Save metrics on process exit
-process.on('SIGTERM', async () => {
-  log.info('Saving all metrics before exit...', { evt: 'exit_save' });
-  for (const interval of Object.keys(registries)) {
-    await saveMetricsToFile(interval);
-  }
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  log.info('Saving all metrics before exit...', { evt: 'exit_save' });
-  for (const interval of Object.keys(registries)) {
-    await saveMetricsToFile(interval);
-  }
-  process.exit(0);
-});
+  process.on('SIGINT', async () => {
+    log.info('Saving all metrics before exit...', { evt: 'exit_save' });
+    for (const interval of Object.keys(registries)) {
+      await saveMetricsToFile(interval);
+    }
+    process.exit(0);
+  });
+}
 
 let defaultMetricsRegistered = false;
 const metricsRegistered: Record<string, boolean> = {
@@ -208,6 +248,8 @@ export async function setupMetrics(interval: 'default' | 'daily' | 'weekly' | 'm
       if (interval === 'default') defaultMetricsRegistered = false;
       // Remove persisted snapshot so we truly start fresh for this interval
       try {
+        await initFs();
+        if (!fs) return;
         const fileName = getMetricsFileName(interval);
         if (fs.existsSync(fileName)) {
           fs.unlinkSync(fileName);
