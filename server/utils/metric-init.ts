@@ -12,7 +12,7 @@ export async function ensureMetricsInitialized() {
 
   try {
     log.info('Initializing metrics...');
-    await initializeAllMetrics();
+    await initializeAllMetrics(); // async call only happens here
     metricsInitialized = true;
     log.info('Metrics initialized.');
   } catch (error) {

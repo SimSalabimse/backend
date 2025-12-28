@@ -1,11 +1,15 @@
 import { z } from 'zod';
 import { useChallenge } from '~/utils/challenge';
+import { ensureMetricsInitialized } from '~/utils/metric-init';
 
 const startSchema = z.object({
   captchaToken: z.string().optional(),
 });
 
-export default defineEventHandler(async event => {
+export default defineEventHandler(async (event) => {
+  // Workers-safe metrics initialization
+  await ensureMetricsInitialized();
+
   const body = await readBody(event);
 
   const result = startSchema.safeParse(body);

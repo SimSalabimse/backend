@@ -1,11 +1,16 @@
 import { z } from 'zod';
 import { useChallenge } from '~/utils/challenge';
+import { prisma } from '~/utils/prisma';
+import { ensureMetricsInitialized } from '~/utils/metric-init';
 
 const startSchema = z.object({
   publicKey: z.string(),
 });
 
-export default defineEventHandler(async event => {
+export default defineEventHandler(async (event) => {
+  // Workers-safe metrics initialization
+  await ensureMetricsInitialized();
+
   const body = await readBody(event);
 
   const result = startSchema.safeParse(body);

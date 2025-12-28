@@ -3,6 +3,8 @@ import { useChallenge } from '~/utils/challenge';
 import { useAuth } from '~/utils/auth';
 import { randomUUID } from 'crypto';
 import { generateRandomNickname } from '~/utils/nickname';
+import { ensureMetricsInitialized } from '~/utils/metric-init';
+import { prisma } from '~/utils/prisma'; // Make sure this is Workers-compatible
 
 const completeSchema = z.object({
   publicKey: z.string(),
@@ -19,7 +21,10 @@ const completeSchema = z.object({
   }),
 });
 
-export default defineEventHandler(async event => {
+export default defineEventHandler(async (event) => {
+  // Workers-safe metrics initialization
+  await ensureMetricsInitialized();
+
   const body = await readBody(event);
 
   const result = completeSchema.safeParse(body);
@@ -77,7 +82,7 @@ export default defineEventHandler(async event => {
       id: user.id,
       publicKey: user.public_key,
       namespace: user.namespace,
-      nickname: (user as any).nickname,
+      nickname: user.nickname,
       profile: user.profile,
       permissions: user.permissions,
     },
