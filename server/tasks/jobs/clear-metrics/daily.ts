@@ -1,6 +1,6 @@
 import { defineTask } from '#imports';
 import { scopedLogger } from '../../../utils/logger';
-import { setupMetrics } from '../../../utils/metrics';
+import { ensureMetricsInitialized } from '../../../utils/metric-init';
 
 const logger = scopedLogger('tasks:clear-metrics:daily');
 
@@ -14,9 +14,9 @@ export default defineTask({
     const startTime = Date.now();
     
     try {
-      // Clear and reinitialize daily metrics
-      await setupMetrics('daily', true);
-      
+      // Cloudflare-safe async metrics initializer
+      await ensureMetricsInitialized();
+
       const executionTime = Date.now() - startTime;
       logger.info(`Daily metrics cleared in ${executionTime}ms`);
       
@@ -29,11 +29,11 @@ export default defineTask({
         }
       };
     } catch (error) {
-      logger.error("Error clearing daily metrics:", { error: error.message });
+      logger.error("Error clearing daily metrics:", { error: error instanceof Error ? error.message : String(error) });
       return { 
         result: {
           status: "error",
-          message: error.message || "An error occurred clearing daily metrics",
+          message: error instanceof Error ? error.message : "An error occurred clearing daily metrics",
           executionTimeMs: Date.now() - startTime,
           timestamp: new Date().toISOString()
         }

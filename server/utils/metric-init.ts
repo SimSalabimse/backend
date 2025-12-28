@@ -1,15 +1,24 @@
+// server/utils/metric-init.ts
 import { initializeAllMetrics } from './metrics';
 import { scopedLogger } from './logger';
 
-const log = scopedLogger('metrics-init');
+const log = scopedLogger('metric-init');
 
-let isInitialized = false;
+let metricsInitialized = false;
 
+// Cloudflare-safe async initializer
 export async function ensureMetricsInitialized() {
-  if (!isInitialized) {
-    log.info('Initializing all metrics...', { evt: 'init_start' });
+  if (metricsInitialized) return;
+
+  try {
+    log.info('Initializing metrics...');
     await initializeAllMetrics();
-    isInitialized = true;
-    log.info('Metrics initialization complete', { evt: 'init_complete' });
+    metricsInitialized = true;
+    log.info('Metrics initialized.');
+  } catch (error) {
+    log.error('Failed to initialize metrics', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new Error('metrics not initialized');
   }
 }
