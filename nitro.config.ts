@@ -4,7 +4,7 @@ config();
 import { version } from './server/utils/config';
 //https://nitro.unjs.io/config
 export default defineNitroConfig({
-  preset: 'cloudflare-module',
+  preset: 'node-server',
   srcDir: 'server',
   compatibilityDate: '2025-03-05',
   experimental: {
