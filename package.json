@@ -28,6 +28,7 @@
     "trakt.tv": "^8.2.0",
     "tweetnacl": "^1.0.3",
     "whatwg-url": "^14.2.0",
+    "wrangler": "^4.56.0",
     "zod": "^3.24.2"
   }
 }

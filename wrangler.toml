@@ -1,0 +1,7 @@
+name = "cold-mc-backend"
+main = ".output/server/index.mjs"
+compatibility_date = "2025-03-05"
+workers_dev = true
+
+[build]
+command = "npm run build"
