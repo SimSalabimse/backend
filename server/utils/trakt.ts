@@ -1,14 +1,29 @@
 import Trakt from 'trakt.tv';
-const traktKeys = useRuntimeConfig().trakt;
 
 let trakt: Trakt | null = null;
+let traktInitialized = false;
 
-if (traktKeys?.clientId && traktKeys?.clientSecret) {
-  const options = {
-    client_id: traktKeys.clientId,
-    client_secret: traktKeys.clientSecret,
-  };
-  trakt = new Trakt(options);
+function initTrakt() {
+  if (traktInitialized) return trakt;
+  
+  const traktKeys = useRuntimeConfig().trakt;
+  
+  if (traktKeys?.clientId && traktKeys?.clientSecret) {
+    const options = {
+      client_id: traktKeys.clientId,
+      client_secret: traktKeys.clientSecret,
+    };
+    trakt = new Trakt(options);
+  }
+  
+  traktInitialized = true;
+  return trakt;
 }
 
-export default trakt;
+// Export a getter function instead of the instance
+export function getTrakt(): Trakt | null {
+  return initTrakt();
+}
+
+// For backward compatibility, also export default
+export default { get current() { return initTrakt(); } };

@@ -48,5 +48,12 @@ function cleanupOldStatuses() {
   }
 }
 
-// Schedule cleanup every 5 minutes
-setInterval(cleanupOldStatuses, 5 * 60 * 1000);
+// Only schedule cleanup in Node.js environment (not Cloudflare Workers)
+const isNodeEnv = typeof process !== 'undefined' && process.versions?.node;
+if (isNodeEnv && typeof setInterval !== 'undefined') {
+  // Schedule cleanup every 5 minutes
+  setInterval(cleanupOldStatuses, 5 * 60 * 1000);
+}
+
+// Export cleanup function so it can be called manually if needed
+export { cleanupOldStatuses };
