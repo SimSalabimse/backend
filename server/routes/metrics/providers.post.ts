@@ -1,20 +1,9 @@
 import { z } from 'zod';
-import { getMetrics, recordProviderMetrics } from '~/utils/metrics';
+import { recordProviderMetrics } from '~/utils/metrics';
 import { scopedLogger } from '~/utils/logger';
-import { setupMetrics } from '~/utils/metrics';
+import { ensureMetricsInitialized } from '~/utils/metric-init';
 
 const log = scopedLogger('metrics-providers');
-
-let isInitialized = false;
-
-async function ensureMetricsInitialized() {
-  if (!isInitialized) {
-    log.info('Initializing metrics from providers endpoint...', { evt: 'init_start' });
-    await setupMetrics();
-    isInitialized = true;
-    log.info('Metrics initialized from providers endpoint', { evt: 'init_complete' });
-  }
-}
 
 const metricsProviderSchema = z.object({
   tmdbId: z.string(),
@@ -35,7 +24,7 @@ const metricsProviderInputSchema = z.object({
   batchId: z.string().optional(),
 });
 
-export default defineEventHandler(async event => {
+export default defineEventHandler(async (event) => {
   // Handle both POST and PUT methods
   if (event.method !== 'POST' && event.method !== 'PUT') {
     throw createError({
@@ -45,6 +34,7 @@ export default defineEventHandler(async event => {
   }
 
   try {
+    // Initialize metrics inside the handler
     await ensureMetricsInitialized();
 
     const body = await readBody(event);
@@ -52,7 +42,6 @@ export default defineEventHandler(async event => {
 
     const hostname = event.node.req.headers.origin?.slice(0, 255) ?? '<UNKNOWN>';
 
-    // Use the simplified recordProviderMetrics function to handle all metrics recording
     recordProviderMetrics(validatedBody.items, hostname, validatedBody.tool);
 
     return true;
