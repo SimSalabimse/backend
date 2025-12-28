@@ -4,15 +4,13 @@ import { scopedLogger } from '../utils/logger';
 
 const log = scopedLogger('metrics-plugin');
 
-// Check if we're in Cloudflare Workers environment
-// Cloudflare Workers don't support fs, setInterval, or async I/O in global scope
-const isCloudflareWorkers = typeof process === 'undefined' || 
-  (typeof navigator !== 'undefined' && typeof caches !== 'undefined');
-
-export default defineNitroPlugin(async () => {
-  // Skip metrics initialization in Cloudflare Workers
-  if (isCloudflareWorkers) {
-    log.info('Skipping metrics initialization (Cloudflare Workers environment)');
+export default defineNitroPlugin(async (nitroApp) => {
+  // Skip metrics in serverless/edge environments
+  // Metrics require file system and periodic intervals which aren't available
+  if (import.meta.preset === 'cloudflare-module' || 
+      import.meta.preset === 'cloudflare-pages' ||
+      import.meta.preset === 'cloudflare') {
+    log.info('Skipping metrics initialization (Cloudflare environment)');
     return;
   }
 
@@ -26,5 +24,3 @@ export default defineNitroPlugin(async () => {
     });
   }
 });
-
-
