@@ -6,6 +6,7 @@ const startSchema = z.object({
 });
 
 export default defineEventHandler(async event => {
+  // Only allow POST
   if (event.node.req.method !== 'POST') {
     throw createError({
       statusCode: 405,
@@ -23,10 +24,19 @@ export default defineEventHandler(async event => {
     });
   }
 
-  const challenge = useChallenge();
-  const challengeCode = await challenge.createChallengeCode('registration', 'mnemonic');
+  try {
+    const challenge = useChallenge();
+    // Use Web Crypto-compatible randomUUID inside challenge
+    const challengeCode = await challenge.createChallengeCode('registration', 'mnemonic');
 
-  return {
-    challenge: challengeCode.code,
-  };
+    return {
+      challenge: challengeCode.code,
+    };
+  } catch (err) {
+    console.error('register/start error:', err);
+    throw createError({
+      statusCode: 500,
+      message: (err as Error)?.message || 'Server error',
+    });
+  }
 });
