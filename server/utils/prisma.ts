@@ -1,22 +1,22 @@
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '../../generated/client';
+import { Client } from '@neondatabase/serverless';
 
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is not set');
+let clientInstance: Client | null = null;
+
+export function getClient(): Client {
+  if (!clientInstance) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL is not set');
+    }
+
+    clientInstance = new Client({
+      connectionString: process.env.DATABASE_URL,
+    });
+  }
+
+  return clientInstance;
 }
 
-// Lazily initialize adapter & client
-const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL,
-});
-
-// global singleton to avoid multiple instances in dev
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
-
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({ adapter });
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
+export async function query(sql: string, params?: any[]) {
+  const client = getClient();
+  return await client.query(sql, params);
 }

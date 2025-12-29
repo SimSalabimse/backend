@@ -1,6 +1,6 @@
 // server/utils/metrics.ts
 import { Counter, register, collectDefaultMetrics, Histogram, Summary, Registry } from 'prom-client';
-import { prisma } from './prisma';
+import { query } from './prisma';
 import { scopedLogger } from './logger';
 
 const log = scopedLogger('metrics');
@@ -204,9 +204,18 @@ export async function updateMetrics(interval: 'default'|'daily'|'weekly'|'monthl
 
   metrics.user.reset();
 
-  const users = await prisma.users.groupBy({ by: ['namespace'], _count: true });
-  users.forEach(u => metrics.user.inc({ namespace: u.namespace }, u._count));
+  // Replace Prisma groupBy with raw SQL using your query() helper
+  const result = await query(`
+    SELECT namespace, COUNT(*) as count
+    FROM users
+    GROUP BY namespace
+  `);
+
+  result.rows.forEach((u: { namespace: string; count: number }) => {
+    metrics.user.inc({ namespace: u.namespace }, u.count);
+  });
 }
+
 
 // Export helpers for HTTP requests / provider / captcha
 export function recordHttpRequest(method: string, route: string, statusCode: number, duration: number) {

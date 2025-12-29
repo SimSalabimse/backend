@@ -1,4 +1,4 @@
-import { prisma } from './prisma';
+import { query } from './prisma';
 import jwt from 'jsonwebtoken';
 const { sign, verify } = jwt;
 import { randomUUID } from 'crypto';
@@ -8,13 +8,13 @@ const SESSION_EXPIRY_MS = 21 * 24 * 60 * 60 * 1000;
 
 export function useAuth() {
   const getSession = async (id: string) => {
-    const session = await prisma.sessions.findUnique({
-      where: { id },
-    });
-
+    const result = await query(
+      `SELECT * FROM sessions WHERE id = $1`,
+      [id]
+    );
+    const session = result.rows[0];
     if (!session) return null;
     if (new Date(session.expires_at) < new Date()) return null;
-
     return session;
   };
 
@@ -25,67 +25,43 @@ export function useAuth() {
     const now = new Date();
     const expiryDate = new Date(now.getTime() + SESSION_EXPIRY_MS);
 
-    return await prisma.sessions.update({
-      where: { id },
-      data: {
-        accessed_at: now,
-        expires_at: expiryDate,
-      },
-    });
+    const result = await query(
+      `UPDATE sessions SET accessed_at = $1, expires_at = $2 WHERE id = $3 RETURNING *`,
+      [now.toISOString(), expiryDate.toISOString(), id]
+    );
+    return result.rows[0];
   };
 
   const makeSession = async (user: string, device: string, userAgent?: string) => {
-    if (!userAgent) throw new Error('No useragent provided');
+    if (!userAgent) throw new Error('No userAgent provided');
 
     const now = new Date();
     const expiryDate = new Date(now.getTime() + SESSION_EXPIRY_MS);
+    const id = randomUUID();
 
-    return await prisma.sessions.create({
-      data: {
-        id: randomUUID(),
-        user,
-        device,
-        user_agent: userAgent,
-        created_at: now,
-        accessed_at: now,
-        expires_at: expiryDate,
-      },
-    });
+    const result = await query(
+      `INSERT INTO sessions (id, user, device, user_agent, created_at, accessed_at, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [id, user, device, userAgent, now.toISOString(), now.toISOString(), expiryDate.toISOString()]
+    );
+    return result.rows[0];
   };
 
   const makeSessionToken = (session: { id: string }) => {
     const runtimeConfig = useRuntimeConfig();
     const cryptoSecret = runtimeConfig.cryptoSecret || process.env.CRYPTO_SECRET;
-    
-    if (!cryptoSecret) {
-      console.error('CRYPTO_SECRET is missing from both runtime config and environment');
-      console.error('Available runtime config keys:', Object.keys(runtimeConfig));
-      console.error('Environment variables:', {
-        CRYPTO_SECRET: process.env.CRYPTO_SECRET ? 'SET' : 'NOT SET',
-        NODE_ENV: process.env.NODE_ENV,
-      });
-      throw new Error('CRYPTO_SECRET environment variable is not set');
-    }
-    
-    return sign({ sid: session.id }, cryptoSecret, {
-      algorithm: 'HS256',
-    });
+    if (!cryptoSecret) throw new Error('CRYPTO_SECRET is not set');
+
+    return sign({ sid: session.id }, cryptoSecret, { algorithm: 'HS256' });
   };
 
   const verifySessionToken = (token: string) => {
     try {
       const runtimeConfig = useRuntimeConfig();
       const cryptoSecret = runtimeConfig.cryptoSecret || process.env.CRYPTO_SECRET;
-      
-      if (!cryptoSecret) {
-        console.error('CRYPTO_SECRET is missing for token verification');
-        return null;
-      }
-      
-      const payload = verify(token, cryptoSecret, {
-        algorithms: ['HS256'],
-      });
+      if (!cryptoSecret) return null;
 
+      const payload = verify(token, cryptoSecret, { algorithms: ['HS256'] });
       if (typeof payload === 'string') return null;
       return payload as { sid: string };
     } catch {
@@ -96,29 +72,16 @@ export function useAuth() {
   const getCurrentSession = async () => {
     const event = useEvent();
     const authHeader = getRequestHeader(event, 'authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw createError({
-        statusCode: 401,
-        message: 'Unauthorized',
-      });
+    if (!authHeader?.startsWith('Bearer ')) {
+      throw createError({ statusCode: 401, message: 'Unauthorized' });
     }
 
     const token = authHeader.split(' ')[1];
     const payload = verifySessionToken(token);
-    if (!payload) {
-      throw createError({
-        statusCode: 401,
-        message: 'Invalid token',
-      });
-    }
+    if (!payload) throw createError({ statusCode: 401, message: 'Invalid token' });
 
     const session = await getSessionAndBump(payload.sid);
-    if (!session) {
-      throw createError({
-        statusCode: 401,
-        message: 'Session not found or expired',
-      });
-    }
+    if (!session) throw createError({ statusCode: 401, message: 'Session not found or expired' });
 
     return session;
   };

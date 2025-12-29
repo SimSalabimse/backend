@@ -1,26 +1,23 @@
-import { prisma } from './prisma';
+import { randomUUID } from 'crypto';
 import nacl from 'tweetnacl';
+import { query } from './prisma';
 
-// Challenge code expires in 10 minutes
+// Challenge expires in 10 minutes
 const CHALLENGE_EXPIRY_MS = 10 * 60 * 1000;
 
 export function useChallenge() {
   const createChallengeCode = async (flow: string, authType: string) => {
+    const code = randomUUID();
     const now = new Date();
-    const expiryDate = new Date(now.getTime() + CHALLENGE_EXPIRY_MS);
+    const expiresAt = new Date(now.getTime() + CHALLENGE_EXPIRY_MS);
 
-    // Use Web Crypto UUID
-    const code = crypto.randomUUID();
+    await query(
+      `INSERT INTO challenge_codes (code, flow, auth_type, created_at, expires_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [code, flow, authType, now.toISOString(), expiresAt.toISOString()]
+    );
 
-    return await prisma.challenge_codes.create({
-      data: {
-        code,
-        flow,
-        auth_type: authType,
-        created_at: now,
-        expires_at: expiryDate,
-      },
-    });
+    return { code, expiresAt };
   };
 
   const verifyChallengeCode = async (
@@ -30,43 +27,50 @@ export function useChallenge() {
     flow: string,
     authType: string
   ) => {
-    const challengeCode = await prisma.challenge_codes.findUnique({
-      where: { code },
-    });
+    const res = await query(
+      `SELECT * FROM challenge_codes WHERE code = $1`,
+      [code]
+    );
 
-    if (!challengeCode) throw new Error('Invalid challenge code');
-    if (challengeCode.flow !== flow || challengeCode.auth_type !== authType)
+    if (res.rowCount === 0) throw new Error('Invalid challenge code');
+
+    const challengeCode = res.rows[0];
+
+    if (challengeCode.flow !== flow || challengeCode.auth_type !== authType) {
       throw new Error('Invalid challenge flow or auth type');
-    if (new Date(challengeCode.expires_at) < new Date()) throw new Error('Challenge code expired');
+    }
 
-    const isValidSignature = verifySignature(code, publicKey, signature);
-    if (!isValidSignature) throw new Error('Invalid signature');
+    if (new Date(challengeCode.expires_at) < new Date()) {
+      throw new Error('Challenge code expired');
+    }
 
-    await prisma.challenge_codes.delete({ where: { code } });
+    if (!verifySignature(code, publicKey, signature)) {
+      throw new Error('Invalid signature');
+    }
+
+    // Delete after verification
+    await query(`DELETE FROM challenge_codes WHERE code = $1`, [code]);
+
     return true;
   };
 
   const verifySignature = (data: string, publicKey: string, signature: string) => {
     try {
-      const sigUint8 = base64ToUint8Array(signature);
-      const pubUint8 = base64ToUint8Array(publicKey);
-      const msgUint8 = new TextEncoder().encode(data);
+      let sig = signature.replace(/-/g, '+').replace(/_/g, '/');
+      while (sig.length % 4 !== 0) sig += '=';
 
-      return nacl.sign.detached.verify(msgUint8, sigUint8, pubUint8);
+      let pub = publicKey.replace(/-/g, '+').replace(/_/g, '/');
+      while (pub.length % 4 !== 0) pub += '=';
+
+      const signatureBuffer = Buffer.from(sig, 'base64');
+      const publicKeyBuffer = Buffer.from(pub, 'base64');
+      const messageBuffer = Buffer.from(data);
+
+      return nacl.sign.detached.verify(messageBuffer, signatureBuffer, publicKeyBuffer);
     } catch (err) {
       console.error('Signature verification error:', err);
       return false;
     }
-  };
-
-  // Cloudflare-safe Base64 decoding
-  const base64ToUint8Array = (str: string) => {
-    str = str.replace(/-/g, '+').replace(/_/g, '/');
-    while (str.length % 4) str += '=';
-    const decoded = atob(str); // Web standard
-    const arr = new Uint8Array(decoded.length);
-    for (let i = 0; i < decoded.length; i++) arr[i] = decoded.charCodeAt(i);
-    return arr;
   };
 
   return {
