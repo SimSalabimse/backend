@@ -22,8 +22,8 @@ export default defineNitroConfig({
   runtimeConfig: {
     public: {
       meta: {
-        name: process.env.META_NAME || '',
-        description: process.env.META_DESCRIPTION || '',
+        name: process.env.META_NAME || 'P-Stream Community Backend',
+        description: process.env.META_DESCRIPTION || 'P-Stream Community Backend, by ray.',
         version: version || '',
         captcha: (process.env.CAPTCHA === 'true').toString(),
         captchaClientKey: process.env.CAPTCHA_CLIENT_KEY || '',
