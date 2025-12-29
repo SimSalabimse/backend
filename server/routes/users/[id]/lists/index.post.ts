@@ -1,5 +1,5 @@
-import { useAuth } from '#imports';
-import { prisma } from '~/utils/prisma';
+import { useAuth } from '../../../../utils/auth';
+import { query } from '../../../../utils/prisma';
 import { z } from 'zod';
 
 const listItemSchema = z.object({
@@ -14,7 +14,7 @@ const createListSchema = z.object({
   public: z.boolean().optional(),
 });
 
-export default defineEventHandler(async event => {
+export default defineEventHandler(async (event) => {
   const userId = event.context.params?.id;
   const session = await useAuth().getCurrentSession();
 
@@ -39,35 +39,40 @@ export default defineEventHandler(async event => {
 
   const validatedBody = createListSchema.parse(parsedBody);
 
-  const result = await prisma.$transaction(async tx => {
-    const newList = await tx.lists.create({
-      data: {
-        user_id: userId,
-        name: validatedBody.name,
-        description: validatedBody.description || null,
-        public: validatedBody.public || false,
-      },
-    });
+  // 1️⃣ Create the list
+  const insertListResult = await query(
+    `INSERT INTO lists (user_id, name, description, public)
+     VALUES ($1, $2, $3, $4)
+     RETURNING *`,
+    [userId, validatedBody.name, validatedBody.description || null, validatedBody.public || false]
+  );
 
-    if (validatedBody.items && validatedBody.items.length > 0) {
-      await tx.list_items.createMany({
-        data: validatedBody.items.map(item => ({
-          list_id: newList.id,
-          tmdb_id: item.tmdb_id,
-          type: item.type, // Type is mapped here
-        })),
-        skipDuplicates: true,
-      });
+  const newList = insertListResult.rows[0];
+
+  // 2️⃣ Insert items if provided
+  if (validatedBody.items?.length) {
+    for (const item of validatedBody.items) {
+      await query(
+        `INSERT INTO list_items (list_id, tmdb_id, type)
+         VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [newList.id, item.tmdb_id, item.type]
+      );
     }
+  }
 
-    return tx.lists.findUnique({
-      where: { id: newList.id },
-      include: { list_items: true },
-    });
-  });
+  // 3️⃣ Fetch list with items
+  const finalListResult = await query(
+    `SELECT l.*, json_agg(li.*) FILTER (WHERE li.id IS NOT NULL) AS list_items
+     FROM lists l
+     LEFT JOIN list_items li ON li.list_id = l.id
+     WHERE l.id = $1
+     GROUP BY l.id`,
+    [newList.id]
+  );
 
   return {
-    list: result,
+    list: finalListResult.rows[0],
     message: 'List created successfully',
   };
 });
